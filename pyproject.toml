@@ -16,4 +16,7 @@ dependencies = [
     "selenium>=4.32.0",
     "tqdm>=4.67.1",
     "openai-whisper>=1.1.10",
+    "fastmcp>=2.2.7",
+    "triton>=3.3.0",
+    "xformers>=0.0.30",
 ]

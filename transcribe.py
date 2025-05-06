@@ -13,20 +13,32 @@ class Segment(BaseModel):
 class TranscriptionResult(BaseModel):
     segments: List[Segment]
 
-def transcribe_audio(audio_path: str) -> TranscriptionResult:
+def transcribe_audio(audio_path: str, model_name: str = "tiny") -> TranscriptionResult:
     """
-    Transcribe audio file using Whisper tiny model and return segments with timestamps.
-    """
-    print("Loading Whisper tiny model...")
-    model = whisper.load_model("tiny")
+    Transcribe audio file using Whisper model and return segments with timestamps.
     
-    print(f"Transcribing {audio_path}...")
+    Args:
+        audio_path: Path to the audio file
+        model_name: Name of the Whisper model to use (default: tiny)
+        
+    Returns:
+        TranscriptionResult object containing the transcription
+    """
+    import torch
+    
+    # Check if CUDA (GPU) is available
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Loading Whisper {model_name} model on {device}...")
+    
+    # Load the model with the specified device
+    model = whisper.load_model(model_name, device=device)
+    
+    print(f"Transcribing {audio_path} using {device}...")
     start_time = time.time()
     
     # Transcribe with word-level timestamps
     result = model.transcribe(
         audio_path,
-        verbose=True,
         word_timestamps=True
     )
     
@@ -59,21 +71,32 @@ def save_transcription(result: TranscriptionResult, output_path: str):
             f.write(f"[{start} --> {end}] {segment.text}\n")
 
 if __name__ == "__main__":
-    audio_file = "tftc_608.mp3"
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Transcribe audio file using Whisper")
+    parser.add_argument("audio_file", help="Path to the audio file to transcribe")
+    parser.add_argument("-o", "--output", help="Output file prefix (without extension)", default="transcription")
+    args = parser.parse_args()
+    
+    audio_file = args.audio_file
+    output_prefix = args.output
     
     # Ensure audio file exists
     if not Path(audio_file).exists():
         raise FileNotFoundError(f"Audio file not found: {audio_file}")
     
+    print(f"Transcribing audio file: {audio_file}")
+    
     # Transcribe audio
     result = transcribe_audio(audio_file)
     
     # Save timestamped transcription
-    output_file = "transcription.txt"
+    output_file = f"{output_prefix}.txt"
     save_transcription(result, output_file)
     print(f"Transcription saved to {output_file}")
     
     # Also save raw JSON for later processing
-    with open("transcription.json", 'w') as f:
+    json_file = f"{output_prefix}.json"
+    with open(json_file, 'w') as f:
         json.dump(result.model_dump(), f, indent=2)
-    print("Raw transcription data saved to transcription.json")
+    print(f"Raw transcription data saved to {json_file}")

@@ -41,7 +41,7 @@ from find_ads import find_sponsored_segments, Advertisement
 # Constants
 DEFAULT_OUTPUT_DIR = "output"
 DEFAULT_NUM_EPISODES = 5 # Keep for potential future use
-DEFAULT_WHISPER_MODEL = "base" # Keep for potential future use
+DEFAULT_WHISPER_MODEL = "tiny" # Keep for potential future use
 
 class PodcastProcessor:
     """Main class for processing podcasts"""
@@ -235,7 +235,7 @@ class PodcastProcessor:
                 return {}
             
             # Get the first MP3 URL and clean it up (replace escaped characters)
-            mp3_url = mp3_matches[0].replace('\\u0026', '&')
+            mp3_url = mp3_matches[0].replace('\\u0026', '&').rstrip('\\')
             
             # Extract the title from the HTML
             title_pattern = r'<title>(.*?)</title>'
