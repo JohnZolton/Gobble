@@ -19,4 +19,5 @@ dependencies = [
     "fastmcp>=2.2.7",
     "triton>=3.3.0",
     "xformers>=0.0.30",
+    "yt-dlp>=2025.4.30",
 ]
