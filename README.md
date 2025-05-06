@@ -85,9 +85,8 @@ The Model Context Protocol (MCP) server provides an interface for AI models to i
 - [ ] Implement `transcribe_youtube` tool to transcribe YouTube videos
 - [ ] Complete the `gobble://search/{query}` resource for searching podcast content
 - [ ] Add vector database integration for semantic search of podcast content
-- [ ] Implement podcast recommendation system based on content similarity
 - [ ] Add support for more podcast platforms beyond Fountain.fm
-- [ ] Create a web interface for browsing and searching podcast transcripts
+
 
 ## Project Structure
 
