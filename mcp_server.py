@@ -523,14 +523,17 @@ async def list_transcripts() -> dict:
     # Dictionary to store the results
     results = {}
     
-    # Walk through the directory and collect all .txt files
+    # Walk through the directory recursively and collect all .txt files
     for show_dir in transcripts_dir.iterdir():
         if show_dir.is_dir():
             show_name = show_dir.name
             results[show_name] = []
             
-            for transcript_file in show_dir.glob("*.txt"):
-                results[show_name].append(transcript_file.name)
+            # Recursively find all .txt files in this show directory
+            for transcript_file in show_dir.rglob("*.txt"):
+                # Get the relative path from the show directory
+                rel_path = transcript_file.relative_to(show_dir)
+                results[show_name].append(str(rel_path))
     
     return results
 
