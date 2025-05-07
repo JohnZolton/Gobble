@@ -139,10 +139,15 @@ async def transcribe_episode_fountain(episode_url: str):
                 "transcript_path": str(transcript_txt_path),
                 "json_path": str(transcript_json_path),
                 "audio_path": str(audio_path),
-                "status": "completed"
+                "status": "already_transcribed"
             }
             
-            return transcription_data
+            return {
+                "status": "already_transcribed",
+                "message": f"Episode was already transcribed and available at: {transcript_txt_path}",
+                "data": transcription_data,
+                "metadata": transcription_data["metadata"]
+            }
         
         # Define a function to process the episode in the background
         def process_episode():
@@ -420,7 +425,25 @@ async def transcribe_youtube(url: str):
                         logger.info(f"Video already transcribed: {transcript_txt_path}")
                         # Load existing transcription
                         with open(transcript_json_path, 'r') as f:
-                            return json.load(f)
+                            transcription_data = json.load(f)
+                            
+                        # Add metadata to the result
+                        transcription_data["metadata"] = {
+                            "channel_name": safe_channel,
+                            "video_title": safe_title,
+                            "url": url,
+                            "transcript_path": str(transcript_txt_path),
+                            "json_path": str(transcript_json_path),
+                            "audio_path": str(audio_path),
+                            "status": "already_transcribed"
+                        }
+                        
+                        return {
+                            "status": "already_transcribed",
+                            "message": f"Video was already transcribed and available at: {transcript_txt_path}",
+                            "data": transcription_data,
+                            "metadata": transcription_data["metadata"]
+                        }
                     
                     # Download to temp directory first
                     logger.info(f"Downloading video to temp directory")
