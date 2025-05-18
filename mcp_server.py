@@ -32,10 +32,10 @@ mcp = FastMCP("Podcast MCP Server", host="0.0.0.0", port=8000, timeout=300)
 
 # won't work easily bc its all frontend js not url based, ignore for now, user will have to upload a link
 # okay we can use google and then filter fountain results to get fountain.fm/{"show" or "episode"}/{id}
-@mcp.tool()
-async def search_fountain(query: str):
-    """Search for a specific podcast on fountain.fm"""
-    pass
+# @mcp.tool()
+# async def search_fountain(query: str):
+#     """Search for a specific podcast on fountain.fm"""
+#     pass
 
 
 @mcp.tool()
@@ -344,16 +344,15 @@ async def search_youtube(query: str):
         return {"error": f"YouTube search failed: {str(e)}"}
 
 @mcp.tool()
-async def transcribe_youtube(url: str):
-    """Download and transcribe a YouTube video
+async def transcribe_youtube(urls: List[str] = Field(description="A list of URLs to transcribe")):
+    """Download and transcribe YouTube videos
     
     Args:
-        url: URL of the YouTube video to transcribe
+        urls: List of YouTube video URLs to transcribe
         
     Returns:
-        Dictionary containing the transcription results with segments and timestamps
+        List of video information including expected paths to transcription files
     """
-    logger.info(f"Transcribing YouTube video: {url}")
     
     try:
         # Import necessary modules
@@ -383,32 +382,33 @@ async def transcribe_youtube(url: str):
             'no_warnings': True
         }
         
-        # Define a function to process the video in the background
-        def process_video():
-            try:
-                # Download audio using yt-dlp
-                logger.info("Downloading audio from YouTube video...")
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    # Get video info first
+        # Helper function to sanitize filenames
+        def sanitize_filename(name):
+            # Replace problematic characters with underscores
+            name = re.sub(r'[<>:"/\\|?*\u0000-\u001F]', '_', name)
+            name = re.sub(r'[\s,]+', '_', name)  # Replace spaces and commas
+            name = re.sub(r'[^\x00-\x7F]+', '_', name)  # Replace non-ASCII
+            name = re.sub(r'_{2,}', '_', name)  # Replace multiple underscores
+            name = name.strip('._-')  # Trim special chars from ends
+            return name if name else "unnamed"
+        
+        # List to store video information
+        video_info_list = []
+        
+        # Extract video information for each URL
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            for url in urls:
+                try:
+                    # Get video info without downloading
                     info = ydl.extract_info(url, download=False)
                     video_title = info.get('title', 'Unknown Title')
                     channel_name = info.get('channel', 'Unknown Channel')
                     
-                    # Clean up names for use in paths - handle special characters
-                    def sanitize_filename(name):
-                        # Replace problematic characters with underscores
-                        name = re.sub(r'[<>:"/\\|?*\u0000-\u001F]', '_', name)
-                        name = re.sub(r'[\s,]+', '_', name)  # Replace spaces and commas
-                        name = re.sub(r'[^\x00-\x7F]+', '_', name)  # Replace non-ASCII
-                        name = re.sub(r'_{2,}', '_', name)  # Replace multiple underscores
-                        name = name.strip('._-')  # Trim special chars from ends
-                        return name if name else "unnamed"
-                    
+                    # Clean up names for use in paths
                     safe_title = sanitize_filename(video_title)
                     safe_channel = sanitize_filename(channel_name)
                     
                     # Create output directories
-                    output_dir = Path("output")
                     audio_dir = output_dir / "audio" / "youtube" / safe_channel
                     transcripts_dir = output_dir / "transcripts" / "youtube" / safe_channel
                     
@@ -420,34 +420,40 @@ async def transcribe_youtube(url: str):
                     transcript_txt_path = transcripts_dir / f"{safe_title}.txt"
                     transcript_json_path = transcripts_dir / f"{safe_title}.json"
                     
+                    # Add to video info list
+                    video_info_list.append({
+                        "url": url,
+                        "title": video_title,
+                        "channel": channel_name,
+                        "safe_title": safe_title,
+                        "safe_channel": safe_channel,
+                        "audio_path": audio_path,
+                        "transcript_txt_path": transcript_txt_path,
+                        "transcript_json_path": transcript_json_path
+                    })
+                    
+                except Exception as e:
+                    logger.error(f"Error extracting info for URL {url}: {str(e)}")
+                    continue
+        
+        # Define function to process videos in background
+        def process_videos():
+            for video_info in video_info_list:
+                try:
+                    url = video_info["url"]
+                    audio_path = video_info["audio_path"]
+                    transcript_txt_path = video_info["transcript_txt_path"]
+                    transcript_json_path = video_info["transcript_json_path"]
+                    
                     # Check if already transcribed
                     if transcript_txt_path.exists() and transcript_json_path.exists():
                         logger.info(f"Video already transcribed: {transcript_txt_path}")
-                        # Load existing transcription
-                        with open(transcript_json_path, 'r') as f:
-                            transcription_data = json.load(f)
-                            
-                        # Add metadata to the result
-                        transcription_data["metadata"] = {
-                            "channel_name": safe_channel,
-                            "video_title": safe_title,
-                            "url": url,
-                            "transcript_path": str(transcript_txt_path),
-                            "json_path": str(transcript_json_path),
-                            "audio_path": str(audio_path),
-                            "status": "already_transcribed"
-                        }
-                        
-                        return {
-                            "status": "already_transcribed",
-                            "message": f"Video was already transcribed and available at: {transcript_txt_path}",
-                            "data": transcription_data,
-                            "metadata": transcription_data["metadata"]
-                        }
+                        continue
                     
-                    # Download to temp directory first
-                    logger.info(f"Downloading video to temp directory")
-                    ydl.download([url])
+                    # Download audio using yt-dlp
+                    logger.info(f"Downloading audio from YouTube video: {url}")
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        ydl.download([url])
                     
                     # Find the downloaded file and move it
                     downloaded_file = next(temp_dir.glob("*.mp3"))
@@ -467,32 +473,36 @@ async def transcribe_youtube(url: str):
                         json.dump(result.model_dump(), f, indent=2)
                     logger.info(f"Raw transcription data saved to: {transcript_json_path}")
                     
-                    # Return success with file paths
-                    return {
-                        "status": "success",
-                        "audio_path": str(audio_path),
-                        "transcript_txt_path": str(transcript_txt_path),
-                        "transcript_json_path": str(transcript_json_path)
-                    }
-                    
-            except Exception as e:
-                logger.error(f"Error processing video in background: {str(e)}")
-                import traceback
-                logger.error(traceback.format_exc())
+                except Exception as e:
+                    logger.error(f"Error processing video {url}: {str(e)}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+                    continue
         
-        # Start the background processing thread
-        thread = threading.Thread(target=process_video)
+        # Start background processing
+        thread = threading.Thread(target=process_videos)
         thread.daemon = True
         thread.start()
         
+        # Return expected paths immediately
         return {
             "status": "processing",
-            "message": "Video is being downloaded and transcribed in the background",
-            "url": url
+            "message": f"Processing {len(urls)} videos in background",
+            "videos": [
+                {
+                    "url": info["url"],
+                    "channel": info["channel"],
+                    "title": info["title"],
+                    "expected_audio_path": str(info["audio_path"]),
+                    "expected_transcript_txt_path": str(info["transcript_txt_path"]),
+                    "expected_transcript_json_path": str(info["transcript_json_path"])
+                }
+                for info in video_info_list
+            ]
         }
             
     except Exception as e:
-        logger.error(f"Error transcribing video: {str(e)}")
+        logger.error(f"Error transcribing videos: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())
         return {"error": f"Transcription failed: {str(e)}"}
