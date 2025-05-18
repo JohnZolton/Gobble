@@ -344,6 +344,10 @@ async def transcribe_episode_fountain(episode_url: str):
                         json.dump(result.model_dump(), f, indent=2)
                     logger.info(f"Raw transcription data saved to: {transcript_json_path}")
                     
+                    # Add the new transcript to the vector store
+                    logger.info(f"Adding new transcript to vector store: {transcript_txt_path}")
+                    initialize_knowledge_base(force_reprocess=False)
+                    
                 finally:
                     # Clean up temp file if it exists
                     if temp_audio_path.exists():
@@ -634,6 +638,10 @@ async def transcribe_youtube(urls: List[str] = Field(description="A list of URLs
                     with open(transcript_json_path, 'w') as f:
                         json.dump(result.model_dump(), f, indent=2)
                     logger.info(f"Raw transcription data saved to: {transcript_json_path}")
+                    
+                    # Add the new transcript to the vector store
+                    logger.info(f"Adding new transcript to vector store: {transcript_txt_path}")
+                    initialize_knowledge_base(force_reprocess=False)
                     
                 except Exception as e:
                     logger.error(f"Error processing video {url}: {str(e)}")
