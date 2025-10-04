@@ -333,7 +333,7 @@ async def transcribe_episode_fountain(episode_url: str):
                     
                     # Transcribe the audio
                     logger.info(f"Transcribing audio file: {audio_path}")
-                    result = transcribe_audio(str(audio_path), model_name="tiny.en")
+                    result = transcribe_audio(str(audio_path))
                     
                     # Save the transcription
                     save_transcription(result, str(transcript_txt_path))
@@ -628,7 +628,7 @@ async def transcribe_youtube(urls: List[str] = Field(description="A list of URLs
                     
                     # Transcribe the audio
                     logger.info(f"Transcribing audio file: {audio_path}")
-                    result = transcribe_audio(str(audio_path), model_name="tiny.en")
+                    result = transcribe_audio(str(audio_path))
                     
                     # Save the transcription
                     save_transcription(result, str(transcript_txt_path))
@@ -677,9 +677,8 @@ async def transcribe_youtube(urls: List[str] = Field(description="A list of URLs
         logger.error(traceback.format_exc())
         return {"error": f"Transcription failed: {str(e)}"}
 
-
 # MCP resources for accessing transcripts
-@mcp.resource("gobble://transcripts/{filename*}")
+@mcp.tool()
 async def get_transcript(filename: str) -> str:
     """Retrieve the content of a transcript file.
     
@@ -707,14 +706,14 @@ async def get_transcript(filename: str) -> str:
         logger.error(f"Error reading transcript file: {str(e)}")
         return f"Error reading transcript file: {str(e)}"
 
-@mcp.resource("gobble://transcripts")
-async def list_transcripts() -> dict:
-    """List all available transcript files.
+@mcp.tool()
+async def list_shows() -> dict:
+    """List all available show names with transcripts.
     
     Returns:
-        Dictionary containing lists of available transcripts organized by show
+        Dictionary containing a list of available show names
     """
-    logger.info("Resource request for transcript listing")
+    logger.info("Resource request for show listing")
     
     # Get the path to the transcripts directory
     transcripts_dir = Path("output/transcripts")
@@ -723,123 +722,53 @@ async def list_transcripts() -> dict:
     if not transcripts_dir.exists():
         return {"error": "Transcripts directory not found"}
     
-    # Dictionary to store the results
-    results = {}
+    # List to store the show names
+    shows = []
     
-    # Walk through the directory recursively and collect all .txt files
+    # Walk through the directory and collect show names (directories)
     for show_dir in transcripts_dir.iterdir():
         if show_dir.is_dir():
-            show_name = show_dir.name
-            results[show_name] = []
-            
-            # Recursively find all .txt files in this show directory
-            for transcript_file in show_dir.rglob("*.txt"):
-                # Get the relative path from the show directory
-                rel_path = transcript_file.relative_to(show_dir)
-                results[show_name].append(str(rel_path))
+            shows.append(show_dir.name)
     
-    return results
+    return {"shows": sorted(shows)}
 
 @mcp.tool()
-async def remove_ads(transcript_path: str, audio_path: str):
-    """Remove advertisements from an audio file using its transcript
+async def list_episodes(show_name: str) -> dict:
+    """List all available episodes for a specific show.
     
     Args:
-        transcript_path: Path to the transcript file (TXT or JSON)
-        audio_path: Path to the audio file to process
+        show_name: Name of the show to list episodes for
         
     Returns:
-        Dictionary containing the paths to the processed files
+        Dictionary containing a list of available episodes for the specified show
     """
-    logger.info(f"Removing ads from audio file: {audio_path}")
-    logger.info(f"Using transcript: {transcript_path}")
+    logger.info(f"Resource request for episodes listing for show: {show_name}")
     
-    try:
-        # Import necessary modules
-        from find_ads import find_ads_in_file
-        from pydub import AudioSegment
-        import subprocess
-        
-        # Find ads in the transcript
-        ads = find_ads_in_file(transcript_path)
-        logger.info(f"Found {len(ads)} advertisements")
-        
-        if not ads:
-            return {
-                "status": "success",
-                "message": "No advertisements found",
-                "original_audio": audio_path
-            }
-        
-        # Create output directory for processed audio
-        output_dir = Path("output/processed")
-        output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Generate output filename
-        audio_path = Path(audio_path)
-        output_path = output_dir / f"{audio_path.stem}_no_ads{audio_path.suffix}"
-        
-        # Convert timestamps to seconds for processing
-        def timestamp_to_seconds(timestamp: str) -> float:
-            h, m, s = map(int, timestamp.split(':'))
-            return h * 3600 + m * 60 + s
-        
-        # Create ffmpeg filter complex for removing segments
-        filter_complex = ""
-        segments = []
-        current_time = 0
-        
-        for i, ad in enumerate(ads):
-            start = timestamp_to_seconds(ad.start)
-            end = timestamp_to_seconds(ad.end)
-            
-            if start > current_time:
-                segments.append(f"[0:a]atrim=start={current_time}:end={start}[s{i}];")
-            current_time = end
-        
-        # Add final segment after last ad
-        duration_cmd = ["ffprobe", "-i", str(audio_path), "-show_entries", "format=duration", "-v", "quiet", "-of", "csv=p=0"]
-        duration = float(subprocess.check_output(duration_cmd).decode().strip())
-        
-        if current_time < duration:
-            segments.append(f"[0:a]atrim=start={current_time}:end={duration}[s{len(ads)}];")
-        
-        # Concatenate all non-ad segments
-        segment_labels = ''.join(f'[s{i}]' for i in range(len(segments)))
-        if segment_labels:
-            filter_complex = ''.join(segments) + f"{segment_labels}concat=n={len(segments)}:v=0:a=1[out]"
-            
-            # Build ffmpeg command
-            cmd = [
-                "ffmpeg", "-i", str(audio_path),
-                "-filter_complex", filter_complex,
-                "-map", "[out]",
-                str(output_path)
-            ]
-            
-            # Execute ffmpeg command
-            logger.info("Processing audio file...")
-            subprocess.run(cmd, check=True)
-            
-            return {
-                "status": "success",
-                "message": f"Removed {len(ads)} advertisements",
-                "original_audio": str(audio_path),
-                "processed_audio": str(output_path),
-                "advertisements": [ad.dict() for ad in ads]
-            }
-        else:
-            return {
-                "status": "error",
-                "message": "Could not generate valid filter complex",
-                "original_audio": str(audio_path)
-            }
-            
-    except Exception as e:
-        logger.error(f"Error removing ads: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return {"error": f"Ad removal failed: {str(e)}"}
+    # Get the path to the transcripts directory
+    transcripts_dir = Path("output/transcripts")
+    
+    # Check if the directory exists
+    if not transcripts_dir.exists():
+        return {"error": "Transcripts directory not found"}
+    
+    # Check if the specific show directory exists
+    show_dir = transcripts_dir / show_name
+    if not show_dir.exists():
+        return {"error": f"Show directory not found: {show_name}"}
+    
+    # List to store the episode files
+    episodes = []
+    
+    # Recursively find all .txt files in this show directory
+    for transcript_file in show_dir.rglob("*.txt"):
+        # Get the relative path from the show directory
+        rel_path = transcript_file.relative_to(show_dir)
+        episodes.append(str(rel_path))
+    
+    return {
+        "show_name": show_name,
+        "episodes": sorted(episodes)
+    }
 
 # Search resource
 @mcp.tool()
@@ -925,6 +854,372 @@ async def search_transcripts(
             "results": []
         }
     
+@mcp.tool()
+async def add_podcast_feed(podcast_rss_url: str = Field(description="The RSS feed URL of the podcast to monitor")):
+    """Adds a podcast RSS feed to the monitor list for automatic processing
+    
+    Args:
+        podcast_rss_url: The RSS feed URL of the podcast
+        
+    Returns:
+        Dictionary containing the status and feed information
+    """
+    logger.info(f"Adding podcast feed to RSS monitor: {podcast_rss_url}")
+    
+    try:
+        import json
+        from pathlib import Path
+        
+        # Create rss directory if it doesn't exist
+        rss_dir = Path("rss")
+        rss_dir.mkdir(exist_ok=True)
+        
+        # Path to the podcasts JSON file
+        podcasts_json_path = rss_dir / "podcasts.json"
+        
+        # Load existing feeds or create empty list
+        if podcasts_json_path.exists() and podcasts_json_path.stat().st_size > 0:
+            try:
+                with open(podcasts_json_path, 'r') as f:
+                    podcast_feeds = json.load(f)
+                if not isinstance(podcast_feeds, list):
+                    podcast_feeds = []
+            except json.JSONDecodeError:
+                logger.error(f"Error reading {podcasts_json_path}, starting with empty list")
+                podcast_feeds = []
+        else:
+            podcast_feeds = []
+        
+        # Check if this feed is already in our list
+        if podcast_rss_url in podcast_feeds:
+            return {
+                "status": "already_exists",
+                "message": f"Podcast feed '{podcast_rss_url}' is already being monitored",
+                "feed_url": podcast_rss_url
+            }
+        
+        # Add the new feed URL to our list
+        podcast_feeds.append(podcast_rss_url)
+        
+        # Save the updated list
+        with open(podcasts_json_path, 'w') as f:
+            json.dump(podcast_feeds, f, indent=2)
+        
+        return {
+            "status": "success",
+            "message": f"Added podcast feed '{podcast_rss_url}' to RSS monitor",
+            "feed_url": podcast_rss_url,
+            "total_feeds": len(podcast_feeds)
+        }
+            
+    except Exception as e:
+        logger.error(f"Error adding podcast feed to RSS monitor: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return {"error": f"Failed to add podcast feed: {str(e)}"}
+
+@mcp.tool()
+async def add_substack_feed(substack_rss_url: str = Field(description="The RSS feed URL of the Substack to monitor")):
+    """Adds a Substack RSS feed to the monitor list for automatic processing
+    
+    Args:
+        substack_rss_url: The RSS feed URL of the Substack
+        
+    Returns:
+        Dictionary containing the status and feed information
+    """
+    logger.info(f"Adding Substack feed to RSS monitor: {substack_rss_url}")
+    
+    try:
+        import json
+        from pathlib import Path
+        
+        # Create rss directory if it doesn't exist
+        rss_dir = Path("rss")
+        rss_dir.mkdir(exist_ok=True)
+        
+        # Path to the substack JSON file
+        substack_json_path = rss_dir / "substack.json"
+        
+        # Load existing feeds or create empty list
+        if substack_json_path.exists() and substack_json_path.stat().st_size > 0:
+            try:
+                with open(substack_json_path, 'r') as f:
+                    substack_feeds = json.load(f)
+                if not isinstance(substack_feeds, list):
+                    substack_feeds = []
+            except json.JSONDecodeError:
+                logger.error(f"Error reading {substack_json_path}, starting with empty list")
+                substack_feeds = []
+        else:
+            substack_feeds = []
+        
+        # Check if this feed is already in our list
+        if substack_rss_url in substack_feeds:
+            return {
+                "status": "already_exists",
+                "message": f"Substack feed '{substack_rss_url}' is already being monitored",
+                "feed_url": substack_rss_url
+            }
+        
+        # Add the new feed URL to our list
+        substack_feeds.append(substack_rss_url)
+        
+        # Save the updated list
+        with open(substack_json_path, 'w') as f:
+            json.dump(substack_feeds, f, indent=2)
+        
+        return {
+            "status": "success",
+            "message": f"Added Substack feed '{substack_rss_url}' to RSS monitor",
+            "feed_url": substack_rss_url,
+            "total_feeds": len(substack_feeds)
+        }
+            
+    except Exception as e:
+        logger.error(f"Error adding Substack feed to RSS monitor: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return {"error": f"Failed to add Substack feed: {str(e)}"}
+
+@mcp.tool()
+async def run_rss_monitor():
+    """Manually trigger the RSS monitoring cycle to check for new content
+    
+    Returns:
+        Dictionary containing the status and results of the monitoring cycle
+    """
+    logger.info("Manually triggering RSS monitoring cycle")
+    
+    try:
+        from enhanced_rss_monitor import RSSMonitor
+        
+        # Create and run the monitor
+        monitor = RSSMonitor()
+        monitor.run_monitoring_cycle()
+        
+        return {
+            "status": "success",
+            "message": "RSS monitoring cycle completed successfully"
+        }
+            
+    except Exception as e:
+        logger.error(f"Error running RSS monitor: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return {"error": f"RSS monitoring failed: {str(e)}"}
+
+@mcp.tool()
+async def list_rss_feeds():
+    """List all RSS feeds currently being monitored
+    
+    Returns:
+        Dictionary containing all monitored feeds organized by type
+    """
+    logger.info("Listing all RSS feeds")
+    
+    try:
+        import json
+        from pathlib import Path
+        
+        rss_dir = Path("rss")
+        result = {
+            "youtube_channels": [],
+            "podcast_feeds": [],
+            "substack_feeds": []
+        }
+        
+        # Load YouTube channels
+        youtube_json_path = rss_dir / "youtube.json"
+        if youtube_json_path.exists() and youtube_json_path.stat().st_size > 0:
+            try:
+                with open(youtube_json_path, 'r') as f:
+                    result["youtube_channels"] = json.load(f)
+            except json.JSONDecodeError:
+                logger.error(f"Error reading {youtube_json_path}")
+        
+        # Load podcast feeds
+        podcasts_json_path = rss_dir / "podcasts.json"
+        if podcasts_json_path.exists() and podcasts_json_path.stat().st_size > 0:
+            try:
+                with open(podcasts_json_path, 'r') as f:
+                    result["podcast_feeds"] = json.load(f)
+            except json.JSONDecodeError:
+                logger.error(f"Error reading {podcasts_json_path}")
+        
+        # Load Substack feeds
+        substack_json_path = rss_dir / "substack.json"
+        if substack_json_path.exists() and substack_json_path.stat().st_size > 0:
+            try:
+                with open(substack_json_path, 'r') as f:
+                    result["substack_feeds"] = json.load(f)
+            except json.JSONDecodeError:
+                logger.error(f"Error reading {substack_json_path}")
+        
+        return result
+            
+    except Exception as e:
+        logger.error(f"Error listing RSS feeds: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return {"error": f"Failed to list RSS feeds: {str(e)}"}
+
+@mcp.tool()
+async def monitor_yt_rss_feed(youtube_channel_url: str = Field(description="The URL of the YouTube channel to monitor")):
+    """Adds a YouTube channel to the RSS feed monitor to automatically process new videos
+    
+    Args:
+        youtube_channel_url: The URL of the YouTube channel homepage or channel ID
+        
+    Returns:
+        Dictionary containing the status and channel information
+    """
+    logger.info(f"Adding YouTube channel to RSS monitor: {youtube_channel_url}")
+    
+    try:
+        # Import necessary modules
+        import re
+        import json
+        import requests
+        from pathlib import Path
+        
+        # Create rss directory if it doesn't exist
+        rss_dir = Path("rss")
+        rss_dir.mkdir(exist_ok=True)
+        
+        # Path to the YouTube channels JSON file
+        youtube_json_path = rss_dir / "youtube.json"
+        
+        # Load existing channels or create empty list
+        if youtube_json_path.exists() and youtube_json_path.stat().st_size > 0:
+            try:
+                with open(youtube_json_path, 'r') as f:
+                    channel_ids = json.load(f)
+                if not isinstance(channel_ids, list):
+                    channel_ids = []
+            except json.JSONDecodeError:
+                logger.error(f"Error reading {youtube_json_path}, starting with empty list")
+                channel_ids = []
+        else:
+            channel_ids = []
+        
+        # Extract channel ID from URL
+        channel_id = None
+        
+        # Check if input is already a channel ID
+        if re.match(r'^[A-Za-z0-9_-]{24}$', youtube_channel_url):
+            channel_id = youtube_channel_url
+        else:
+            # Process as URL
+            # Handle different YouTube URL formats
+            if "youtube.com/channel/" in youtube_channel_url:
+                # Direct channel URL format: youtube.com/channel/CHANNEL_ID
+                channel_id_match = re.search(r'youtube\.com/channel/([A-Za-z0-9_-]+)', youtube_channel_url)
+                if channel_id_match:
+                    channel_id = channel_id_match.group(1)
+            elif "youtube.com/@" in youtube_channel_url:
+                # Handle @username format: youtube.com/@username
+                username_match = re.search(r'youtube\.com/@([A-Za-z0-9_-]+)', youtube_channel_url)
+                if username_match:
+                    username = username_match.group(1)
+                    
+                    # Fetch the channel page to extract the channel ID
+                    response = requests.get(f"https://www.youtube.com/@{username}")
+                    if response.status_code == 200:
+                        # Look for channel ID in the HTML
+                        html_content = response.text
+                        
+                        # Try different patterns to find channel ID
+                        patterns = [
+                            r'"channelId":"([A-Za-z0-9_-]+)"',
+                            r'channel/([A-Za-z0-9_-]+)',
+                            r'externalId":"([A-Za-z0-9_-]+)"'
+                        ]
+                        
+                        for pattern in patterns:
+                            channel_match = re.search(pattern, html_content)
+                            if channel_match:
+                                channel_id = channel_match.group(1)
+                                break
+            elif "youtube.com/c/" in youtube_channel_url:
+                # Handle /c/ format: youtube.com/c/customname
+                custom_match = re.search(r'youtube\.com/c/([A-Za-z0-9_-]+)', youtube_channel_url)
+                if custom_match:
+                    custom_name = custom_match.group(1)
+                    
+                    # Fetch the channel page to extract the channel ID
+                    response = requests.get(f"https://www.youtube.com/c/{custom_name}")
+                    if response.status_code == 200:
+                        # Look for channel ID in the HTML
+                        html_content = response.text
+                        
+                        # Try different patterns to find channel ID
+                        patterns = [
+                            r'"channelId":"([A-Za-z0-9_-]+)"',
+                            r'channel/([A-Za-z0-9_-]+)',
+                            r'externalId":"([A-Za-z0-9_-]+)"'
+                        ]
+                        
+                        for pattern in patterns:
+                            channel_match = re.search(pattern, html_content)
+                            if channel_match:
+                                channel_id = channel_match.group(1)
+                                break
+            else:
+                # Try to handle as a generic YouTube URL
+                # Fetch the page and look for channel ID
+                response = requests.get(youtube_channel_url)
+                if response.status_code == 200:
+                    html_content = response.text
+                    
+                    # Try different patterns to find channel ID
+                    patterns = [
+                        r'"channelId":"([A-Za-z0-9_-]+)"',
+                        r'channel/([A-Za-z0-9_-]+)',
+                        r'externalId":"([A-Za-z0-9_-]+)"'
+                    ]
+                    
+                    for pattern in patterns:
+                        channel_match = re.search(pattern, html_content)
+                        if channel_match:
+                            channel_id = channel_match.group(1)
+                            break
+        
+        # If we couldn't extract a channel ID, return an error
+        if not channel_id:
+            return {
+                "status": "error",
+                "message": "Could not extract channel ID from the provided URL",
+                "url": youtube_channel_url
+            }
+        
+        # Check if this channel is already in our list
+        if channel_id in channel_ids:
+            return {
+                "status": "already_exists",
+                "message": f"Channel ID '{channel_id}' is already being monitored",
+                "channel_id": channel_id
+            }
+        
+        # Add the new channel ID to our list
+        channel_ids.append(channel_id)
+        
+        # Save the updated list
+        with open(youtube_json_path, 'w') as f:
+            json.dump(channel_ids, f, indent=2)
+        
+        return {
+            "status": "success",
+            "message": f"Added channel ID '{channel_id}' to RSS monitor",
+            "channel_id": channel_id,
+            "total_channels": len(channel_ids)
+        }
+            
+    except Exception as e:
+        logger.error(f"Error adding YouTube channel to RSS monitor: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return {"error": f"Failed to add channel: {str(e)}"}    
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
