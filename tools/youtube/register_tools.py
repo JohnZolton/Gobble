@@ -3,6 +3,7 @@ from pathlib import Path
 from pydantic import Field
 from tools.transcription.parakeet import transcribe_audio
 from .download_youtube import download_audio
+from tools.knowledge_retrieval.vector_store import embed_transcript
 import tempfile as _tempfile
 import os
 import re
@@ -17,7 +18,7 @@ def _sanitize_for_filename(s: str) -> str:
     return s
 
 def get_youtube_transcript(url: Field(description="the url of the youtube video to transcribe")):
-    """Download a video's audio to a temp file, transcribe it, save transcript to knowledge/,
+    """Download a video's audio to a temp file, transcribe it, save transcript to knowledge/youtube,
     and return the transcript path.
 
     download_audio(url, output_path) is expected to return either:
@@ -90,6 +91,13 @@ def get_youtube_transcript(url: Field(description="the url of the youtube video 
     except Exception as e:
         return {"error": "write_failed", "message": str(e), "path": str(out_path)}
 
+    # Embed the transcript into the vector database
+    embed_result = embed_transcript(str(out_path))
+    if not embed_result.get("success"):
+        # Log the error but don't fail the whole operation
+        # The transcript file was saved successfully, embedding can be retried later
+        print(f"Warning: Failed to embed transcript: {embed_result.get('error')}")
+
     # Remove temporary audio file if it's inside the system temp dir (to avoid deleting user files)
     try:
         tmpdir = _tempfile.gettempdir()
@@ -104,7 +112,4 @@ def get_youtube_transcript(url: Field(description="the url of the youtube video 
 
 def register_youtube_tools(mcp):
     """Register youtube.get_transcript on the provided MCP server instance."""
-    mcp.tool(
-        name="youtube.get_transcript",
-        description="Download and transcribe a YouTube video's audio."
-    )(get_youtube_transcript)
+    mcp.tool()(get_youtube_transcript)

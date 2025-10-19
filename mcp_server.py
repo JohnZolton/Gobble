@@ -12,6 +12,9 @@ from pathlib import Path
 import re
 
 from tools.youtube.register_tools import register_youtube_tools
+from tools.knowledge_retrieval.transcripts import register_knowledgebase_tools
+from tools.knowledge_retrieval.vector_store import initialize_knowledge_base
+
 
 # Load environment variables from .env file
 load_dotenv()
@@ -32,6 +35,10 @@ mcp = FastMCP("Podcast MCP Server", host="0.0.0.0", port=8000, timeout=300)
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
+
+    initialize_knowledge_base()
+
     register_youtube_tools(mcp)
+    register_knowledgebase_tools(mcp)
     
     asyncio.run(mcp.run_sse_async())
