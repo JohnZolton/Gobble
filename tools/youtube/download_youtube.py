@@ -37,6 +37,7 @@ def download_audio(url, output_path):
             "outtmpl": str(output_path.with_suffix(".%(ext)s")),
             "quiet": True,
             "no_warnings": True,
+            "concurrent_fragment_downloads": 4,  # equivalent to --concurrent-fragments 5
             "postprocessors": [
                 {
                     "key": "FFmpegExtractAudio",

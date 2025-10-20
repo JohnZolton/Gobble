@@ -41,3 +41,11 @@ coming soon™:
 
 - support podcasts
 - autodownload subscriptions (yt/podcast rss feed)
+
+### utils
+
+download a video
+
+```bash
+python -m tools.youtube.download_youtube {url_to_video}
+```
