@@ -7,6 +7,7 @@ from tools.knowledge_retrieval.vector_store import embed_transcript
 import tempfile as _tempfile
 import os
 import re
+import threading
 
 def _sanitize_for_filename(s: str) -> str:
     # keep it simple: replace whitespace with underscore and remove unsafe chars
@@ -91,12 +92,18 @@ def get_youtube_transcript(url: Field(description="the url of the youtube video 
     except Exception as e:
         return {"error": "write_failed", "message": str(e), "path": str(out_path)}
 
-    # Embed the transcript into the vector database
-    embed_result = embed_transcript(str(out_path))
-    if not embed_result.get("success"):
-        # Log the error but don't fail the whole operation
-        # The transcript file was saved successfully, embedding can be retried later
-        print(f"Warning: Failed to embed transcript: {embed_result.get('error')}")
+    # Embed the transcript into the vector database in a background thread
+    def embed_in_background():
+        try:
+            embed_result = embed_transcript(str(out_path))
+            if not embed_result.get("success"):
+                print(f"Warning: Failed to embed transcript: {embed_result.get('error')}")
+        except Exception as e:
+            print(f"Warning: Exception during background embedding: {e}")
+    
+    # Start embedding in background thread (daemon=True so it doesn't block program exit)
+    embedding_thread = threading.Thread(target=embed_in_background, daemon=True)
+    embedding_thread.start()
 
     # Remove temporary audio file if it's inside the system temp dir (to avoid deleting user files)
     try:

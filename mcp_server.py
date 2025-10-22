@@ -15,6 +15,7 @@ import re
 from tools.youtube.register_tools import register_youtube_tools
 from tools.knowledge_retrieval.transcripts import register_knowledgebase_tools
 from tools.knowledge_retrieval.vector_store import initialize_knowledge_base
+from tools.ebooks.register_tools import register_ebook_tools
 
 
 # Load environment variables from .env file
@@ -70,8 +71,9 @@ if __name__ == "__main__":
 
     initialize_knowledge_base()
 
-    register_youtube_tools(mcp)
-    register_knowledgebase_tools(mcp)
+    # register_youtube_tools(mcp)
+    # register_knowledgebase_tools(mcp)
+    register_ebook_tools(mcp)
     
     # Run with the appropriate transport
     if args.transport == "sse":
